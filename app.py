@@ -4,12 +4,14 @@ from playlist_logic import (
     DEFAULT_PROFILE,
     Song,
     build_playlists,
+    check_song_conflict,
     compute_playlist_stats,
     history_summary,
     lucky_pick,
     merge_playlists,
     normalize_song,
     search_songs,
+    validate_thresholds,
 )
 
 
@@ -194,21 +196,30 @@ def profile_sidebar():
         value=str(profile.get("name", "")),
     )
 
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        profile["hype_min_energy"] = st.sidebar.slider(
-            "Hype min energy",
-            min_value=1,
-            max_value=10,
-            value=int(profile.get("hype_min_energy", 7)),
+    hype_min = st.sidebar.slider(
+        "Hype min energy",
+        min_value=1,
+        max_value=10,
+        value=int(profile.get("hype_min_energy", 7)),
+    )
+    chill_max = st.sidebar.slider(
+        "Chill max energy",
+        min_value=1,
+        max_value=10,
+        value=int(profile.get("chill_max_energy", 3)),
+    )
+
+    threshold_error = validate_thresholds(hype_min, chill_max)
+    if threshold_error:
+        # Keep the last valid values so songs don't jump around.
+        st.sidebar.error(
+            threshold_error
+            + f" Still using Hype ≥ {profile['hype_min_energy']}, "
+            f"Chill ≤ {profile['chill_max_energy']}."
         )
-    with col2:
-        profile["chill_max_energy"] = st.sidebar.slider(
-            "Chill max energy",
-            min_value=1,
-            max_value=10,
-            value=int(profile.get("chill_max_energy", 3)),
-        )
+    else:
+        profile["hype_min_energy"] = hype_min
+        profile["chill_max_energy"] = chill_max
 
     profile["favorite_genre"] = st.sidebar.selectbox(
         "Favorite genre",
@@ -248,11 +259,18 @@ def add_song_sidebar():
             "energy": energy,
             "tags": tags,
         }
-        if title and artist:
-            normalized = normalize_song(song)
-            all_songs = st.session_state.songs[:]
-            all_songs.append(normalized)
-            st.session_state.songs = all_songs
+        if not (title and artist):
+            st.sidebar.error("Title and artist are required.")
+            return
+        normalized = normalize_song(song)
+        conflict = check_song_conflict(normalized, st.session_state.profile)
+        if conflict:
+            st.sidebar.error(conflict)
+            return
+        all_songs = st.session_state.songs[:]
+        all_songs.append(normalized)
+        st.session_state.songs = all_songs
+        st.sidebar.success(f"Added '{normalized['title']}'.")
 
 
 def playlist_tabs(playlists):

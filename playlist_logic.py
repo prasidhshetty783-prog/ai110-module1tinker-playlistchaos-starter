@@ -1,6 +1,6 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-Song = Dict[str, object]
+Song = Dict[str, Any]
 PlaylistMap = Dict[str, List[Song]]
 
 DEFAULT_PROFILE = {
@@ -57,26 +57,65 @@ def normalize_song(raw: Song) -> Song:
     }
 
 
-def classify_song(song: Song, profile: Dict[str, object]) -> str:
-    """Return a mood label given a song and user profile."""
-    energy = song.get("energy", 0)
-    genre = song.get("genre", "")
-    title = song.get("title", "")
+# Which playlist each genre belongs to. "other" has no mood, so it goes to Mixed.
+GENRE_GROUPS = {
+    "rock": "Hype",
+    "pop": "Hype",
+    "electronic": "Hype",
+    "ambient": "Chill",
+    "jazz": "Chill",
+    "lofi": "Chill",
+    "other": "Mixed",
+}
 
-    hype_min_energy = profile.get("hype_min_energy", 7)
-    chill_max_energy = profile.get("chill_max_energy", 3)
-    favorite_genre = profile.get("favorite_genre", "")
 
-    hype_keywords = ["rock", "punk", "party"]
-    chill_keywords = ["lofi", "ambient", "sleep"]
-
-    is_hype_keyword = any(k in genre for k in hype_keywords)
-    is_chill_keyword = any(k in title for k in chill_keywords)
-
-    if genre == favorite_genre or energy >= hype_min_energy or is_hype_keyword:
+def energy_band(energy: int, profile: Dict[str, Any]) -> str:
+    """Return Hype / Chill / Mixed based on energy and the profile thresholds."""
+    hype_min_energy = int(profile.get("hype_min_energy", 7))
+    chill_max_energy = int(profile.get("chill_max_energy", 3))
+    if energy >= hype_min_energy:
         return "Hype"
-    if energy <= chill_max_energy or is_chill_keyword:
+    if energy <= chill_max_energy:
         return "Chill"
+    return "Mixed"
+
+
+def validate_thresholds(hype_min_energy: int, chill_max_energy: int) -> Optional[str]:
+    """Return an error message if the thresholds overlap, else None."""
+    if hype_min_energy <= chill_max_energy:
+        return (
+            f"Hype min energy ({hype_min_energy}) must be higher than "
+            f"Chill max energy ({chill_max_energy})."
+        )
+    return None
+
+
+def check_song_conflict(song: Song, profile: Dict[str, object]) -> Optional[str]:
+    """Return an error message if genre and energy point to opposite playlists."""
+    genre_group = GENRE_GROUPS.get(str(song.get("genre", "")), "Mixed")
+    band = energy_band(int(song.get("energy", 0)), profile)
+    if {genre_group, band} == {"Hype", "Chill"}:
+        return (
+            f"'{song.get('genre')}' is a {genre_group} genre, but energy "
+            f"{song.get('energy')} is in the {band} range. Change the genre or energy."
+        )
+    return None
+
+
+def classify_song(song: Song, profile: Dict[str, object]) -> str:
+    """Return a mood label. Genre and energy must agree (AND logic).
+
+    - Genre "other" -> Mixed.
+    - Genre group and energy band agree -> that playlist.
+    - One of them is Mixed (e.g. pop at energy 5) -> Mixed.
+    - They conflict (e.g. pop at energy 2) -> Mixed. Adding such a song is
+      blocked in the UI; this only happens when thresholds change later.
+    Favorite genre is a preference only and does not affect placement.
+    """
+    genre_group = GENRE_GROUPS.get(str(song.get("genre", "")), "Mixed")
+    band = energy_band(int(song.get("energy", 0)), profile)
+    if genre_group == band:
+        return genre_group
     return "Mixed"
 
 
