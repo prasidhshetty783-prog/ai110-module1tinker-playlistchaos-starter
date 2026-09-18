@@ -218,12 +218,11 @@ def lucky_pick(
     mode: str = "any",
 ) -> Optional[Song]:
     """Pick a song from the playlists according to mode."""
-    if mode == "hype":
-        songs = playlists.get("Hype", [])
-    elif mode == "chill":
-        songs = playlists.get("Chill", [])
-    else:
-        songs = playlists.get("Hype", []) + playlists.get("Chill", [])
+    sources = {"hype": ["Hype"], "chill": ["Chill"]}.get(mode, ["Hype", "Chill"])
+
+    songs: List[Song] = []
+    for name in sources:
+        songs.extend(playlists.get(name, []))
 
     return random_choice_or_none(songs)
 
